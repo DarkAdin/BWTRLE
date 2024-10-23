@@ -5,21 +5,21 @@
 #include<time.h>
 
 // Set this buffer to accomodate for the number of characters per row
-#define BUF 90000
+#define BUF 25000
 
 // This was necessary
 // https://stackoverflow.com/questions/39560773/different-declarations-of-qsort-r-on-mac-and-linux
 void qsort_r(
     void *base, int nmemb, int size,
-    int (*compar)(const void *, const void *, void *),
+    unsigned short (*compar)(const void *, const void *, void *),
     void *arg
 );
 
-int compare_r(const void *a, const void *b, void *p) {
-    int *row_a = *(int **)a;
-    int *row_b = *(int **)b;
-    int cols = *(int *)p;
-    for (int i = 0; i < cols; i++) {
+unsigned short compare_r(const void *a, const void *b, void *p) {
+    unsigned short *row_a = *(unsigned short **)a;
+    unsigned short *row_b = *(unsigned short **)b;
+    short cols = *(short *)p;
+    for (int i = 0;i< cols; i++) {
         if (row_a[i] < row_b[i]) return -1;
         else if (row_a[i] > row_b[i]) return 1;
     }
@@ -29,10 +29,9 @@ int compare_r(const void *a, const void *b, void *p) {
 // The alphabet decides the order
 char *alphabet = "¡¿!$'+,.-:;?^_|[]()abcdefghijklmnñopqrstuvwxyz";
 
-// Working with numbers is easier
-int to_number (char letter, char *alphabet) {
-    int len = strlen(alphabet);
-    for (int i = 0; i < len; i++) {
+unsigned short to_number (char letter, char *alphabet) {
+    unsigned short len = strlen(alphabet);
+    for (unsigned short i = 0; i < len; i++) {
         if (letter == alphabet[i]) return i;
     }
 }
@@ -42,32 +41,33 @@ void bwt_rle (char *text, char *alphabet, FILE *out) {
     /********************************
      * 1. BURROWS-WHEELER TRANSFORM *
      ********************************/
-    int l = strlen(text);
+    unsigned int l = strlen(text);
 
     // Create unsorted rotations matrix.
     //      Only the first row is computed,
     //      the rest are generated from it.
-    int **rotations = malloc(sizeof(int*) * l);
-    for (int i = 0; i < l; i++) rotations[i] = malloc(sizeof(int) * l);
+    unsigned short **rotations = malloc(sizeof(short*) * l);
+    for (int i = 0; i < 1; i++) rotations[i] = malloc(sizeof(unsigned short) * l);
 
     // First row first
-    for (int i = 0; i < l; i++) rotations[0][i] = to_number(text[i], alphabet);
+    for (unsigned int i = 0; i < l; i++) rotations[0][i] = to_number(text[i], alphabet);
 
     // Then the rest of the rows
 	// TODO: THE MEMORY USAGE OF THIS STEP MUST BE OPTIMIZED
-    for (int i = 1; i < l; i++) {
-        for (int j = 0; j < l; j++) {
+    for (unsigned int i = 1; i < l; i++) {
+        rotations[i] = malloc(sizeof(unsigned short*) * l);
+        for (unsigned int j = 0; j < l; j++) {
             rotations[i][j] = rotations[0][(j + i) % l];
         }
     }
 
     // Sort them
-    qsort_r(rotations, l, sizeof(int*), compare_r, &l);
+    qsort_r(rotations, l, sizeof(short*), compare_r, &l);
 
     // This will be the transformed string
     char *string = malloc(sizeof(char) * l);
 
-    for (int i = 0; i < l; i++) {
+    for (unsigned int i = 0; i < l; i++) {
         string[i] = alphabet[rotations[i][l-1]];
         free(rotations[i]);
     }
@@ -79,14 +79,15 @@ void bwt_rle (char *text, char *alphabet, FILE *out) {
     /**************************
      * 2. RUN-LENGTH ENCODING *
      **************************/
-    int count = 1;
+    unsigned int count = 1;
 
-    for (int i = 0; i < l; i++) {
-        if (string[i+1] == string[i]) count++;
-        else {
-            fprintf(out, "%c%d", string[i], count);
-            count = 1;
+    for (unsigned int i = 0; i < l; i++) {
+        if (string[i+1] == string[i]) {
+            count++;
+            continue;
         }
+        fprintf(out, "%c%d", string[i], count);
+        count = 1;
     }
     fprintf(out, "%c", '\n');
 
@@ -100,7 +101,7 @@ void inv_bwt_rle (char *text, char *alphabet, FILE *out) {
      * 1. INVERSE RLE *
      ******************/
     // Character count of the original string
-    int intcount = 0;
+    unsigned int intcount = 0;
 
     char *inv_rle = malloc(sizeof(char) * BUF);
 
@@ -110,7 +111,7 @@ void inv_bwt_rle (char *text, char *alphabet, FILE *out) {
         if (isdigit(*text) || ( (*text == '-' || *text == '+') && isdigit(*(text+1)) )) {
             val = strtol(text, &text, 10);
             intcount += val;
-            for (int i = intcount-val; i < intcount; i++) inv_rle[i] = letter;
+            for (unsigned int i = intcount-val; i < intcount; i++) inv_rle[i] = letter;
         }
         else {
             letter = text[0];
@@ -125,15 +126,21 @@ void inv_bwt_rle (char *text, char *alphabet, FILE *out) {
      ******************/
     int len = strlen(inv_rle);
 
-    int **transformations = calloc(len, sizeof(int*));
-    for (int i = 0; i < len; i++) transformations[i] = calloc(len, sizeof(int));
+    unsigned short **transformations = calloc(len, sizeof(short*));
+    for (int i = 0; i < len; i++) transformations[i] = calloc(len, sizeof(short));
 
+    // TODO: Optimize this very, very slow process
+    int sortings = 0;
     for (int i = len-1; i >= 0; i--) {
-        for (int j = 0; j < len; j++) transformations[j][i] = to_number(inv_rle[j], alphabet);
-        qsort_r(transformations, len, sizeof(int*), compare_r, &len);
+        for (int j = 0; j < len; j++) {
+            transformations[j][i] = to_number(inv_rle[j], alphabet);
+        }
+        qsort_r(transformations, len, sizeof(short*), compare_r, &len);
+        printf("SORTING NUMBER %d/%d\n", sortings++, len-1);
     }
 
     for (int i = 0; i < len; i++) {
+        // We found the ending of the original string, this is our row
         if (alphabet[transformations[i][len-1]] == '$') {
             int row = i;
             for (int j = 0; j < len; j++) fprintf(out, "%c", alphabet[transformations[row][j]]);
@@ -145,7 +152,6 @@ void inv_bwt_rle (char *text, char *alphabet, FILE *out) {
     // Free memory
     for (int i = 0; i < len; i++) free(transformations[i]);
     free(transformations);
-
     free(inv_rle);
 }
 
@@ -158,6 +164,7 @@ int main (int argc, char **argv) {
     }
 
     FILE *file = fopen(argv[2], "r");
+
     if (file == NULL) {
         printf("Could not open file %s.\n", argv[2]);
         return 1;
@@ -165,7 +172,7 @@ int main (int argc, char **argv) {
 
     clock_t begin = clock();
 
-    // COMPRESS
+    // 1. COMPRESS
     if (argv[1][0] == 'c') {
 
         char *outfile_name = "compression_results.txt";
@@ -176,6 +183,7 @@ int main (int argc, char **argv) {
 
         while (fgets(line, BUF, file) != NULL) {
             if (line[0] == '>') {
+		 printf("Name: %s\n", line);
                 fprintf(out, "%s", line);
                 continue;
             }
@@ -184,6 +192,8 @@ int main (int argc, char **argv) {
             // Null-terminate the string
             if (line[l-1] == '\n') line[l-1] = '\0';
             else line[l] = '\0';
+
+	     printf("Compressing string of %d characters.\n", l);
 
             // BWT+RLE
             bwt_rle(line, alphabet, out);
@@ -195,7 +205,7 @@ int main (int argc, char **argv) {
         printf("Compression results written to %s.\n", outfile_name);
     }
 
-    // DECOMPRESS
+    // 2. DECOMPRESS
     else if (argv[1][0] == 'd') {
         char *outfile_name = "decompression_results.txt";
 
@@ -221,6 +231,8 @@ int main (int argc, char **argv) {
 
         printf("Decompression results written to %s.\n", outfile_name);
     }
+
+    // No good option provided
     else {
         printf("Burrows-Wheeler Transform + Run-Length Encoding of text/FASTA files.\nUsage: ./BWT (c)ompress/(d)ecompress text/FASTA_file\n");
         return 1;
