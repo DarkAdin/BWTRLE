@@ -3,6 +3,7 @@
 #include<stdlib.h>
 #include<ctype.h>
 #include<time.h>
+#include<omp.h>
 
 // Set this buffer to accomodate for the number of characters per row
 #define BUF 25000
@@ -19,7 +20,7 @@ unsigned short compare_r(const void *a, const void *b, void *p) {
     unsigned short *row_a = *(unsigned short **)a;
     unsigned short *row_b = *(unsigned short **)b;
     short cols = *(short *)p;
-    for (int i = 0;i< cols; i++) {
+    for (int i = 0; i< cols; i++) {
         if (row_a[i] < row_b[i]) return -1;
         else if (row_a[i] > row_b[i]) return 1;
     }
@@ -27,7 +28,7 @@ unsigned short compare_r(const void *a, const void *b, void *p) {
 }
 
 // The alphabet decides the order
-char *alphabet = "¡¿!$'+,.-:;?^_|[]()abcdefghijklmnñopqrstuvwxyz";
+char *alphabet = "¡¿!$'+,.-:;?^_|[]()ABCDEFGHIJKLMNÑOPQRSTUVWXYZabcdefghijklmnñopqrstuvwxyz";
 
 unsigned short to_number (char letter, char *alphabet) {
     unsigned short len = strlen(alphabet);
@@ -46,19 +47,19 @@ void bwt_rle (char *text, char *alphabet, FILE *out) {
     // Create unsorted rotations matrix.
     //      Only the first row is computed,
     //      the rest are generated from it.
-    unsigned short **rotations = malloc(sizeof(short*) * l);
-    for (int i = 0; i < 1; i++) rotations[i] = malloc(sizeof(unsigned short) * l);
+    unsigned short **rotations = malloc(sizeof(unsigned short*) * l);
+    rotations[0] = malloc(sizeof(unsigned short) * l);
 
     // First row first
+    #pragma omp parallel for
     for (unsigned int i = 0; i < l; i++) rotations[0][i] = to_number(text[i], alphabet);
 
     // Then the rest of the rows
-	// TODO: THE MEMORY USAGE OF THIS STEP MUST BE OPTIMIZED
+    #pragma omp parallel for
     for (unsigned int i = 1; i < l; i++) {
         rotations[i] = malloc(sizeof(unsigned short*) * l);
-        for (unsigned int j = 0; j < l; j++) {
-            rotations[i][j] = rotations[0][(j + i) % l];
-        }
+        #pragma omp parallel for
+        for (unsigned int j = 0; j < l; j++) rotations[i][j] = rotations[0][(j + i) % l];
     }
 
     // Sort them
@@ -67,6 +68,7 @@ void bwt_rle (char *text, char *alphabet, FILE *out) {
     // This will be the transformed string
     char *string = malloc(sizeof(char) * l);
 
+    #pragma omp parallel for
     for (unsigned int i = 0; i < l; i++) {
         string[i] = alphabet[rotations[i][l-1]];
         free(rotations[i]);
@@ -111,6 +113,7 @@ void inv_bwt_rle (char *text, char *alphabet, FILE *out) {
         if (isdigit(*text) || ( (*text == '-' || *text == '+') && isdigit(*(text+1)) )) {
             val = strtol(text, &text, 10);
             intcount += val;
+            #pragma omp parallel for
             for (unsigned int i = intcount-val; i < intcount; i++) inv_rle[i] = letter;
         }
         else {
@@ -127,14 +130,14 @@ void inv_bwt_rle (char *text, char *alphabet, FILE *out) {
     int len = strlen(inv_rle);
 
     unsigned short **transformations = calloc(len, sizeof(short*));
+    #pragma omp parallel for
     for (int i = 0; i < len; i++) transformations[i] = calloc(len, sizeof(short));
 
     // TODO: Optimize this very, very slow process
     int sortings = 0;
     for (int i = len-1; i >= 0; i--) {
-        for (int j = 0; j < len; j++) {
-            transformations[j][i] = to_number(inv_rle[j], alphabet);
-        }
+        #pragma omp parallel for
+        for (int j = 0; j < len; j++) transformations[j][i] = to_number(inv_rle[j], alphabet);
         qsort_r(transformations, len, sizeof(short*), compare_r, &len);
         printf("SORTING NUMBER %d/%d\n", sortings++, len-1);
     }
@@ -142,8 +145,7 @@ void inv_bwt_rle (char *text, char *alphabet, FILE *out) {
     for (int i = 0; i < len; i++) {
         // We found the ending of the original string, this is our row
         if (alphabet[transformations[i][len-1]] == '$') {
-            int row = i;
-            for (int j = 0; j < len; j++) fprintf(out, "%c", alphabet[transformations[row][j]]);
+            for (int j = 0; j < len; j++) fprintf(out, "%c", alphabet[transformations[i][j]]);
             fprintf(out, "%c", '\n');
             break;
         }
@@ -170,7 +172,7 @@ int main (int argc, char **argv) {
         return 1;
     }
 
-    clock_t begin = clock();
+    //clock_t begin = clock();
 
     // 1. COMPRESS
     if (argv[1][0] == 'c') {
@@ -183,7 +185,7 @@ int main (int argc, char **argv) {
 
         while (fgets(line, BUF, file) != NULL) {
             if (line[0] == '>') {
-		 printf("Name: %s\n", line);
+		        printf("Name: %s\n", line);
                 fprintf(out, "%s", line);
                 continue;
             }
@@ -240,10 +242,11 @@ int main (int argc, char **argv) {
 
     fclose(file);
 
-    clock_t end = clock();
-    float time = (float)(end-begin) / CLOCKS_PER_SEC;
+    //clock_t end = clock();
+    //float time = (float)(end-begin) / CLOCKS_PER_SEC;
 
-    printf("Done processing file %s in %.6f seconds.\n", argv[2], time);
+    //printf("Done processing file %s in %.6f seconds.\n", argv[2], time);
+    printf("Done processing file %s.\n", argv[2]);
 
     return 0;
 }
